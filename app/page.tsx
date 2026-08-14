@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type TabItem = {
   id: number;
@@ -99,16 +99,45 @@ function AppIcon({ label, color, small = false }: { label: string; color: string
   return <span className={`appIcon ${small ? "small" : ""}`} style={{ background: color }}>{label}</span>;
 }
 
+function usePersistentState<T>(key: string, initialValue: T) {
+  const [value, setValue] = useState(initialValue);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(key);
+      // Hydrate once after mount to avoid server/client markup mismatches.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (stored !== null) setValue(JSON.parse(stored) as T);
+    } catch {
+      // Corrupt or unavailable local storage should never prevent the app from opening.
+    } finally {
+      setHydrated(true);
+    }
+  }, [key]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      window.localStorage.setItem(key, JSON.stringify(value));
+    } catch {
+      // The dashboard remains usable in private browsing or restricted storage modes.
+    }
+  }, [hydrated, key, value]);
+
+  return [value, setValue] as const;
+}
+
 export default function Home() {
-  const [activeView, setActiveView] = useState("By Website");
-  const [openGroups, setOpenGroups] = useState<string[]>(["Marblism"]);
+  const [activeView, setActiveView] = usePersistentState("youTabbed.activeView", "By Website");
+  const [openGroups, setOpenGroups] = usePersistentState<string[]>("youTabbed.openGroups", ["Marblism"]);
   const [query, setQuery] = useState("");
   const [toast, setToast] = useState("");
-  const [closed, setClosed] = useState<number[]>([]);
-  const [saved, setSaved] = useState<number[]>([]);
+  const [closed, setClosed] = usePersistentState<number[]>("youTabbed.closedTabs", []);
+  const [saved, setSaved] = usePersistentState<number[]>("youTabbed.savedTabs", []);
   const [taskTab, setTaskTab] = useState<TabItem | null>(null);
-  const [teamFavorites, setTeamFavorites] = useState<TeamFavorite[]>(seedFavorites);
-  const [projectFilter, setProjectFilter] = useState("All projects");
+  const [teamFavorites, setTeamFavorites] = usePersistentState<TeamFavorite[]>("youTabbed.teamFavorites", seedFavorites);
+  const [projectFilter, setProjectFilter] = usePersistentState("youTabbed.projectFilter", "All projects");
   const [favoriteModal, setFavoriteModal] = useState(false);
   const [favoriteDraft, setFavoriteDraft] = useState({ title: "", url: "", project: "Marblism Growth", note: "" });
 
@@ -156,7 +185,17 @@ export default function Home() {
     setTeamFavorites((current) => [{ id: Date.now(), ...favoriteDraft, person: "EF", color: "#1768ef" }, ...current]);
     setFavoriteDraft({ title: "", url: "", project: "Marblism Growth", note: "" });
     setFavoriteModal(false);
-    announce("Shared with the team — realtime update sent");
+    announce("Favorite saved locally to this workspace");
+  }
+
+  function resetWorkspace() {
+    setActiveView("By Website");
+    setOpenGroups(["Marblism"]);
+    setClosed([]);
+    setSaved([]);
+    setTeamFavorites(seedFavorites);
+    setProjectFilter("All projects");
+    announce("Workspace restored to its starter state");
   }
 
   return (
@@ -169,7 +208,7 @@ export default function Home() {
           <button className="railButton" aria-label="Saved">☆</button>
           <button className="railButton" aria-label="History">◷</button>
         </div>
-        <button className="railButton settings" aria-label="Settings">⚙</button>
+        <button className="railButton settings" aria-label="Reset workspace" onClick={resetWorkspace}>⚙</button>
       </aside>
 
       <section className="workspace">
