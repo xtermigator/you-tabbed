@@ -41,6 +41,10 @@ npm run start
 
 Create a new Netlify site from this repository and use the existing `netlify.toml`. The build command is `npm run build`, the Node version is 22, and the Next.js Netlify plugin is already configured. No environment variables are needed for standalone mode.
 
+## Custom workspace folders
+
+The dashboard includes a local-first **Workspaces** view for organizing synced tabs into custom folders. Create, rename, and delete folders; save tabs from the live tab list; reopen saved tabs later; and remove individual tabs from a folder. Folder data is stored in browser `localStorage`, so it works without a database or account and survives page reloads on the same browser profile.
+
 ## Browser companion for real Chrome and Edge tabs
 
 The `extension/` directory contains a Chromium Manifest V3 companion that works in Chrome and Edge. It reads tab titles and URLs, sends them to an open YouTabbed dashboard tab, and refreshes when tabs are created, removed, or navigated.

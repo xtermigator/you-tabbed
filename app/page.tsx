@@ -32,6 +32,13 @@ type TeamFavorite = {
   color: string;
 };
 
+type WorkspaceFolder = {
+  id: number;
+  name: string;
+  color: string;
+  tabs: TabItem[];
+};
+
 const groups: TabGroup[] = [
   {
     name: "Marblism",
@@ -94,7 +101,7 @@ const seedFavorites: TeamFavorite[] = [
   { id: 104, title: "Inclusive Pathways App Library", url: "friendlyfernspublishing.com/apps", project: "Inclusive Pathways", note: "Shared app and partner reference", person: "AS", color: "#ff5e62" },
 ];
 
-const navItems = ["My Tabs", "By Website", "By Topic", "By Browser", "Needs Action", "Team Space"];
+const navItems = ["My Tabs", "By Website", "By Topic", "By Browser", "Needs Action", "Workspaces", "Team Space"];
 
 const liveColors = ["#2563eb", "#7655e8", "#25b99a", "#f56c70", "#14213d"];
 
@@ -164,6 +171,9 @@ export default function Home() {
   const [projectFilter, setProjectFilter] = usePersistentState("youTabbed.projectFilter", "All projects");
   const [syncedTabs, setSyncedTabs] = usePersistentState<TabItem[]>("youTabbed.syncedTabs", []);
   const [extensionConnected, setExtensionConnected] = usePersistentState("youTabbed.extensionConnected", false);
+  const [workspaceFolders, setWorkspaceFolders] = usePersistentState<WorkspaceFolder[]>("youTabbed.workspaceFolders", []);
+  const [folderPickerTab, setFolderPickerTab] = useState<TabItem | null>(null);
+  const [newFolderName, setNewFolderName] = useState("");
   const [favoriteModal, setFavoriteModal] = useState(false);
   const [favoriteDraft, setFavoriteDraft] = useState({ title: "", url: "", project: "Marblism Growth", note: "" });
 
@@ -221,6 +231,44 @@ export default function Home() {
     announce(saved.includes(tab.id) ? "Removed from saved references" : "Saved as a reference");
   }
 
+  function createWorkspaceFolder() {
+    const name = newFolderName.trim();
+    if (!name) return announce("Give the workspace folder a name first");
+    const folder: WorkspaceFolder = { id: Date.now(), name, color: liveColors[workspaceFolders.length % liveColors.length], tabs: [] };
+    setWorkspaceFolders((current) => [...current, folder]);
+    setNewFolderName("");
+    announce(`Created “${name}” workspace folder`);
+  }
+
+  function saveTabToFolder(folderId: number) {
+    if (!folderPickerTab) return;
+    setWorkspaceFolders((current) => current.map((folder) => folder.id === folderId && !folder.tabs.some((tab) => tab.id === folderPickerTab.id) ? { ...folder, tabs: [...folder.tabs, folderPickerTab] } : folder));
+    const folder = workspaceFolders.find((item) => item.id === folderId);
+    setFolderPickerTab(null);
+    announce(folder ? `Saved “${folderPickerTab.title}” to ${folder.name}` : "Tab saved to workspace");
+  }
+
+  function removeTabFromFolder(folderId: number, tabId: number) {
+    setWorkspaceFolders((current) => current.map((folder) => folder.id === folderId ? { ...folder, tabs: folder.tabs.filter((tab) => tab.id !== tabId) } : folder));
+    announce("Removed from workspace folder");
+  }
+
+  function renameWorkspaceFolder(folderId: number) {
+    const folder = workspaceFolders.find((item) => item.id === folderId);
+    if (!folder) return;
+    const name = window.prompt("Rename workspace folder", folder.name)?.trim();
+    if (!name) return;
+    setWorkspaceFolders((current) => current.map((item) => item.id === folderId ? { ...item, name } : item));
+    announce(`Renamed workspace folder to “${name}”`);
+  }
+
+  function deleteWorkspaceFolder(folderId: number) {
+    const folder = workspaceFolders.find((item) => item.id === folderId);
+    if (!folder) return;
+    setWorkspaceFolders((current) => current.filter((item) => item.id !== folderId));
+    announce(`Deleted “${folder.name}” workspace folder`);
+  }
+
   function closeTab(tab: TabItem) {
     setClosed((current) => [...current, tab.id]);
     announce(`Closed “${tab.title}” — Undo available`);
@@ -241,6 +289,7 @@ export default function Home() {
     setSaved([]);
     setTeamFavorites(seedFavorites);
     setProjectFilter("All projects");
+    setWorkspaceFolders([]);
     announce("Workspace restored to its starter state");
   }
 
@@ -290,7 +339,7 @@ export default function Home() {
           <article><span className="statIcon mint">▢</span><div><strong>{extensionConnected ? 0 : 4}</strong><small>Duplicates</small></div></article>
         </section>}
 
-        {activeView !== "Team Space" ? <div className="mainGrid">
+        {activeView !== "Team Space" && activeView !== "Workspaces" ? <div className="mainGrid">
           <section className="groupsPanel" aria-label="Grouped browser tabs">
             <div className="panelHeading">
               <div><p>{activeView}</p><h1>Your open tabs</h1></div>
@@ -321,6 +370,7 @@ export default function Home() {
                           <div className="rowActions">
                             <button className="openAction" onClick={() => openTab(tab)}>Open ↗</button>
                             <button className={saved.includes(tab.id) ? "saved" : ""} onClick={() => saveTab(tab)}>{saved.includes(tab.id) ? "Saved" : "Save"}</button>
+                            <button className="folderAction" onClick={() => setFolderPickerTab(tab)}>Folder</button>
                             <button className="taskAction" onClick={() => setTaskTab(tab)}>Create task</button>
                             <button className="closeAction" onClick={() => closeTab(tab)} aria-label={`Close ${tab.title}`}>×</button>
                           </div>
@@ -342,7 +392,13 @@ export default function Home() {
             <button onClick={() => { setOpenGroups((current) => current.includes("Marblism") ? current : [...current, "Marblism"]); announce("Marblism work group is ready"); }}>Continue task <span>→</span></button>
             <small>You stay in control. YouTabbed never sends or closes anything without your action.</small>
           </aside>
-        </div> : <section className="teamSpace">
+        </div> : activeView === "Workspaces" ? <section className="workspacePage">
+          <header className="workspaceHero"><div><p>Saved browser spaces</p><h1>Custom workspaces</h1><span>Keep useful synced tabs together for projects, research, launches, or anything you return to.</span></div><div className="workspaceCreate"><input value={newFolderName} onChange={(event) => setNewFolderName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") createWorkspaceFolder(); }} placeholder="New folder name" aria-label="New workspace folder name" /><button onClick={createWorkspaceFolder}>＋ Create folder</button></div></header>
+          {workspaceFolders.length === 0 ? <div className="emptyState workspaceEmpty"><strong>No custom workspaces yet</strong><span>Save any synced tab into a new folder to start building your personal tab library.</span><button onClick={() => setNewFolderName("Research")}>＋ Suggest a folder name</button></div> : <div className="workspaceFolderGrid">{workspaceFolders.map((folder) => <article className="workspaceFolder" key={folder.id}>
+            <header><div><AppIcon label={folder.name[0]?.toUpperCase() || "W"} color={folder.color} /><span><strong>{folder.name}</strong><small>{folder.tabs.length} saved {folder.tabs.length === 1 ? "tab" : "tabs"}</small></span></div><div className="folderMenu"><button onClick={() => renameWorkspaceFolder(folder.id)} aria-label={`Rename ${folder.name}`}>Rename</button><button onClick={() => deleteWorkspaceFolder(folder.id)} aria-label={`Delete ${folder.name}`}>Delete</button></div></header>
+            {folder.tabs.length === 0 ? <div className="folderEmpty">Save a tab here from the live tab list.</div> : <div className="folderTabs">{folder.tabs.map((tab) => <div className="folderTab" key={tab.id}><AppIcon small label={tab.icon} color={tab.color} /><button className="folderTabIdentity" onClick={() => openTab(tab)}><strong>{tab.title}</strong><small>{tab.detail}</small></button><button className="folderOpen" onClick={() => openTab(tab)}>Open ↗</button><button className="folderRemove" onClick={() => removeTabFromFolder(folder.id, tab.id)} aria-label={`Remove ${tab.title} from ${folder.name}`}>×</button></div>)}</div>}
+          </article>)}</div>}
+        </section> : <section className="teamSpace">
           <header className="teamHero"><div><p>Shared browser workspace</p><h1>Dr. Disruptor Team Space</h1><span>Share useful pages by project without sharing passwords, cookies, or private tabs.</span></div><button onClick={() => setFavoriteModal(true)}>＋ Add team favorite</button></header>
 
           <div className="privacyBand">
@@ -378,6 +434,8 @@ export default function Home() {
           </section>
         </div>
       )}
+
+      {folderPickerTab && <div className="modalBackdrop" role="presentation" onMouseDown={() => setFolderPickerTab(null)}><section className="taskModal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}><button className="modalClose" onClick={() => setFolderPickerTab(null)} aria-label="Close folder picker">×</button><p>Organize synced tab</p><h2>Save “{folderPickerTab.title}”</h2><label>New workspace folder<input value={newFolderName} onChange={(event) => setNewFolderName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") createWorkspaceFolder(); }} placeholder="e.g. Product research" /></label><div className="modalActions"><button onClick={createWorkspaceFolder}>Create folder</button></div><div className="folderPickerList">{workspaceFolders.length === 0 ? <div className="folderPickerEmpty">Create your first folder above.</div> : workspaceFolders.map((folder) => <button key={folder.id} onClick={() => saveTabToFolder(folder.id)}><AppIcon small label={folder.name[0]?.toUpperCase() || "W"} color={folder.color} /><span><strong>{folder.name}</strong><small>{folder.tabs.length} saved {folder.tabs.length === 1 ? "tab" : "tabs"}</small></span><b>＋</b></button>)}</div></section></div>}
 
       {favoriteModal && <div className="modalBackdrop" role="presentation" onMouseDown={() => setFavoriteModal(false)}><section className="taskModal" role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}><button className="modalClose" onClick={() => setFavoriteModal(false)}>×</button><p>Share with your team</p><h2>Add a team favorite</h2><div className="safeShare"><b>✓</b><span><strong>Only this favorite is shared.</strong><small>No password, cookie, history, or other tab leaves your computer.</small></span></div><label>Name<input value={favoriteDraft.title} onChange={(e) => setFavoriteDraft({ ...favoriteDraft, title: e.target.value })} placeholder="Marblism Partner Program" /></label><label>Web address<input value={favoriteDraft.url} onChange={(e) => setFavoriteDraft({ ...favoriteDraft, url: e.target.value })} placeholder="https://…" /></label><label>Project<select value={favoriteDraft.project} onChange={(e) => setFavoriteDraft({ ...favoriteDraft, project: e.target.value })}><option>Marblism Growth</option><option>Nonprofit Outreach</option><option>Inclusive Pathways</option></select></label><label>Team note<input value={favoriteDraft.note} onChange={(e) => setFavoriteDraft({ ...favoriteDraft, note: e.target.value })} placeholder="Why is this useful?" /></label><div className="modalActions"><button onClick={() => setFavoriteModal(false)}>Cancel</button><button onClick={addTeamFavorite}>Share favorite</button></div></section></div>}
 
