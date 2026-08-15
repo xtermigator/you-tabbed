@@ -19,7 +19,7 @@ function ageLabel(timestamp) {
 async function collectTabs() {
   const tabs = await chrome.tabs.query({});
   return tabs
-    .filter((tab) => tab.id !== undefined && tab.url && !tab.url.startsWith("chrome://") && !tab.url.startsWith("edge://") && !tab.url.startsWith("about:"))
+    .filter((tab) => tab.id !== undefined && tab.url && !isDashboardUrl(tab.url) && !tab.url.startsWith("chrome://") && !tab.url.startsWith("edge://") && !tab.url.startsWith("about:"))
     .map((tab, index) => ({
       id: tab.id,
       title: tab.title || tab.url,
@@ -38,24 +38,68 @@ async function findDashboardTab() {
   return tabs.find((tab) => isDashboardUrl(tab.url));
 }
 
+async function waitForTabLoaded(tabId) {
+  const current = await chrome.tabs.get(tabId);
+  if (current.status === "complete") return;
+  await new Promise((resolve) => {
+    const listener = (updatedId, changeInfo) => {
+      if (updatedId === tabId && changeInfo.status === "complete") {
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }
+    };
+    chrome.tabs.onUpdated.addListener(listener);
+  });
+}
+
+async function sendTabsToDashboard(tabId, tabs) {
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: "tabs:sync", tabs });
+  } catch {
+    // If the dashboard was already open when the extension was installed,
+    // its content script may not exist yet. Inject it once, then retry.
+    await chrome.scripting.executeScript({ target: { tabId }, files: ["dashboard-bridge.js"] });
+    await chrome.tabs.sendMessage(tabId, { type: "tabs:sync", tabs });
+  }
+}
+
 async function syncToDashboard() {
   const dashboard = await findDashboardTab();
   if (!dashboard?.id) return { ok: false, reason: "Open You Tabbed in a browser tab first." };
 
   const tabs = await collectTabs();
   try {
-    await chrome.tabs.sendMessage(dashboard.id, { type: "tabs:sync", tabs });
+    await sendTabsToDashboard(dashboard.id, tabs);
     await chrome.storage.local.set({ lastSync: Date.now(), tabCount: tabs.length });
     return { ok: true, count: tabs.length };
   } catch {
-    return { ok: false, reason: "Refresh the You Tabbed dashboard and try again." };
+    return { ok: false, reason: "Refresh the You Tabbed dashboard once, then sync again." };
   }
 }
 
+async function openDashboardAndSync() {
+  let dashboard = await findDashboardTab();
+  if (!dashboard?.id) {
+    dashboard = await chrome.tabs.create({ url: DASHBOARD_URLS[0] });
+    if (!dashboard.id) return { ok: false, reason: "Could not open the dashboard." };
+    await waitForTabLoaded(dashboard.id);
+  }
+  return syncToDashboard();
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type !== "tabs:sync-request") return;
-  syncToDashboard().then(sendResponse);
-  return true;
+  if (message?.type === "tabs:sync-request") {
+    syncToDashboard().then(sendResponse);
+    return true;
+  }
+  if (message?.type === "tabs:open-and-sync") {
+    openDashboardAndSync().then(sendResponse);
+    return true;
+  }
+});
+
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.storage.local.set({ installedAt: Date.now() });
 });
 
 chrome.alarms.create("youTabbedSync", { periodInMinutes: 1 });

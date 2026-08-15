@@ -3,7 +3,7 @@
   "name": "You Tabbed Companion",
   "version": "0.1.0",
   "description": "Sync your open Chrome or Edge tabs into your private You Tabbed dashboard.",
-  "permissions": ["tabs", "storage", "alarms"],
+  "permissions": ["tabs", "storage", "alarms", "scripting"],
   "host_permissions": [
     "https://you-tabbed.netlify.app/*",
     "http://localhost:3000/*"

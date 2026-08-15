@@ -1,4 +1,3 @@
-const DASHBOARD_URL = "https://you-tabbed.netlify.app/";
 const status = document.querySelector("#status");
 const result = document.querySelector("#result");
 
@@ -20,8 +19,11 @@ async function sync() {
 }
 
 document.querySelector("#sync").addEventListener("click", sync);
-document.querySelector("#open").addEventListener("click", () => {
-  chrome.tabs.create({ url: DASHBOARD_URL });
+document.querySelector("#open").addEventListener("click", async () => {
+  status.textContent = "Opening dashboard…";
+  const response = await chrome.runtime.sendMessage({ type: "tabs:open-and-sync" });
+  if (response?.ok) showResult(`${response.count} real tabs synced.`);
+  else showResult(response?.reason || "Could not connect to the dashboard.", true);
 });
 
 chrome.storage.local.get(["lastSync", "tabCount"], ({ lastSync, tabCount }) => {
