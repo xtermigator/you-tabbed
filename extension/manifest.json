@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "You Tabbed Companion",
+  "version": "0.1.0",
+  "description": "Sync your open Chrome or Edge tabs into your private You Tabbed dashboard.",
+  "permissions": ["tabs", "storage", "alarms"],
+  "host_permissions": [
+    "https://you-tabbed.netlify.app/*",
+    "http://localhost:3000/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Sync tabs to You Tabbed",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://you-tabbed.netlify.app/*",
+        "http://localhost:3000/*"
+      ],
+      "js": ["dashboard-bridge.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

@@ -8,6 +8,7 @@ type TabItem = {
   detail: string;
   browser: "Chrome" | "Edge";
   age: string;
+  url?: string;
   icon: string;
   color: string;
   action?: boolean;
@@ -95,6 +96,29 @@ const seedFavorites: TeamFavorite[] = [
 
 const navItems = ["My Tabs", "By Website", "By Topic", "By Browser", "Needs Action", "Team Space"];
 
+const liveColors = ["#2563eb", "#7655e8", "#25b99a", "#f56c70", "#14213d"];
+
+function createGroupsFromSyncedTabs(tabs: TabItem[]): TabGroup[] {
+  const grouped = new Map<string, TabItem[]>();
+  tabs.forEach((tab) => {
+    let host = "Other tabs";
+    try {
+      host = new URL(tab.url || "").hostname.replace(/^www\\./, "") || host;
+    } catch {
+      // Keep the safe fallback for extension pages or malformed URLs.
+    }
+    grouped.set(host, [...(grouped.get(host) || []), tab]);
+  });
+
+  return Array.from(grouped.entries()).map(([name, groupTabs], index) => ({
+    name,
+    subtitle: `${groupTabs.length} synced tab${groupTabs.length === 1 ? "" : "s"}`,
+    icon: name[0]?.toUpperCase() || "T",
+    color: liveColors[index % liveColors.length],
+    tabs: groupTabs,
+  }));
+}
+
 function AppIcon({ label, color, small = false }: { label: string; color: string; small?: boolean }) {
   return <span className={`appIcon ${small ? "small" : ""}`} style={{ background: color }}>{label}</span>;
 }
@@ -138,22 +162,43 @@ export default function Home() {
   const [taskTab, setTaskTab] = useState<TabItem | null>(null);
   const [teamFavorites, setTeamFavorites] = usePersistentState<TeamFavorite[]>("youTabbed.teamFavorites", seedFavorites);
   const [projectFilter, setProjectFilter] = usePersistentState("youTabbed.projectFilter", "All projects");
+  const [syncedTabs, setSyncedTabs] = usePersistentState<TabItem[]>("youTabbed.syncedTabs", []);
+  const [extensionConnected, setExtensionConnected] = usePersistentState("youTabbed.extensionConnected", false);
   const [favoriteModal, setFavoriteModal] = useState(false);
   const [favoriteDraft, setFavoriteDraft] = useState({ title: "", url: "", project: "Marblism Growth", note: "" });
 
+  useEffect(() => {
+    function receiveExtensionMessage(event: MessageEvent) {
+      if (event.source !== window || event.data?.source !== "youtabbed-extension" || event.data?.type !== "tabs:sync") return;
+      const incoming = Array.isArray(event.data.tabs) ? event.data.tabs as TabItem[] : [];
+      setSyncedTabs(incoming);
+      setExtensionConnected(true);
+    }
+
+    window.addEventListener("message", receiveExtensionMessage);
+    window.postMessage({ source: "youtabbed-dashboard", type: "tabs:request" }, "*");
+    return () => window.removeEventListener("message", receiveExtensionMessage);
+  }, [setExtensionConnected, setSyncedTabs]);
+
+  const sourceGroups = extensionConnected ? createGroupsFromSyncedTabs(syncedTabs) : groups;
+  const allTabs = sourceGroups.flatMap((group) => group.tabs);
+  const totalOpenTabs = allTabs.filter((tab) => !closed.includes(tab.id)).length;
+  const websiteCount = sourceGroups.length;
+  const actionCount = allTabs.filter((tab) => tab.action && !closed.includes(tab.id)).length;
+
   const visibleGroups = useMemo(() => {
     const lower = query.toLowerCase();
-    return groups.map((group) => ({
+    return sourceGroups.map((group) => ({
       ...group,
       tabs: group.tabs.filter((tab) => {
         if (closed.includes(tab.id)) return false;
         const matchesSearch = !lower || `${group.name} ${tab.title} ${tab.detail}`.toLowerCase().includes(lower);
         const matchesView = activeView !== "Needs Action" || tab.action;
-        const matchesBrowser = activeView !== "By Browser" || tab.browser === "Chrome";
+        const matchesBrowser = activeView !== "By Browser" || tab.browser === (extensionConnected ? (syncedTabs[0]?.browser || "Chrome") : "Chrome");
         return matchesSearch && matchesView && matchesBrowser;
       }),
     })).filter((group) => group.tabs.length > 0);
-  }, [query, activeView, closed]);
+  }, [query, activeView, closed, sourceGroups, extensionConnected, syncedTabs]);
 
   const totalVisible = visibleGroups.reduce((sum, group) => sum + group.tabs.length, 0);
 
@@ -167,7 +212,8 @@ export default function Home() {
   }
 
   function openTab(tab: TabItem) {
-    announce(`Switching to “${tab.title}” in ${tab.browser}`);
+    if (tab.url) window.open(tab.url, "_blank", "noopener,noreferrer");
+    announce(tab.url ? `Opening “${tab.title}” in a new tab` : `Switching to “${tab.title}” in ${tab.browser}`);
   }
 
   function saveTab(tab: TabItem) {
@@ -220,8 +266,8 @@ export default function Home() {
             {query && <button onClick={() => setQuery("")} aria-label="Clear search">×</button>}
           </label>
           <button className="teamChooser" onClick={() => setActiveView("Team Space")}><span><i>EF</i><i>AS</i></span>Dr. Disruptor Team</button>
-          <button className="connectionPill" onClick={() => announce("Browser extension is connected and syncing tabs")}>
-            <span className="liveDot" /> <strong>{42 - closed.length}</strong> tabs open
+          <button className="connectionPill" onClick={() => { window.postMessage({ source: "youtabbed-dashboard", type: "tabs:request" }, "*"); announce(extensionConnected ? "Requesting a fresh browser sync" : "Install the You Tabbed extension to sync real tabs"); }}>
+            <span className="liveDot" /> <strong>{totalOpenTabs}</strong> tabs open
           </button>
         </header>
 
@@ -233,15 +279,15 @@ export default function Home() {
 
         <div className={`syncStrip ${activeView === "Team Space" ? "purpleStrip" : ""}`}>
           <span className="extensionIcon">⊕</span>
-          <div><strong>{activeView === "Team Space" ? "Team workspace is live" : "Browser extension connected"}</strong><small>{activeView === "Team Space" ? "Shared favorites sync through Supabase. Private tabs stay on each member’s computer." : "Chrome and Edge tabs stay on this computer and appear in your private dashboard."}</small></div>
-          <button onClick={() => announce("Tabs refreshed just now")}>↻ Sync now</button>
+          <div><strong>{activeView === "Team Space" ? "Team workspace is live" : extensionConnected ? "Browser extension connected" : "Standalone workspace"}</strong><small>{activeView === "Team Space" ? "Shared favorites sync through Supabase. Private tabs stay on each member’s computer." : extensionConnected ? `${syncedTabs.length} real tabs received from your browser. Nothing is sent without your action.` : "Starter workspace is running locally. Install the Chrome or Edge companion to sync real tabs."}</small></div>
+          <button onClick={() => { window.postMessage({ source: "youtabbed-dashboard", type: "tabs:request" }, "*"); announce(extensionConnected ? "Tabs refreshed just now" : "Waiting for the browser companion"); }}>↻ Sync now</button>
         </div>
 
         {activeView !== "Team Space" && <section className="statsGrid" aria-label="Tab summary">
-          <article><span className="statIcon blue">▣</span><div><strong>{42 - closed.length}</strong><small>Open Tabs</small></div></article>
-          <article><span className="statIcon purple">◎</span><div><strong>12</strong><small>Websites</small></div></article>
-          <article><span className="statIcon coral">!</span><div><strong>6</strong><small>Need Action</small></div></article>
-          <article><span className="statIcon mint">▢</span><div><strong>4</strong><small>Duplicates</small></div></article>
+          <article><span className="statIcon blue">▣</span><div><strong>{totalOpenTabs}</strong><small>Open Tabs</small></div></article>
+          <article><span className="statIcon purple">◎</span><div><strong>{websiteCount}</strong><small>Websites</small></div></article>
+          <article><span className="statIcon coral">!</span><div><strong>{extensionConnected ? actionCount : 6}</strong><small>Need Action</small></div></article>
+          <article><span className="statIcon mint">▢</span><div><strong>{extensionConnected ? 0 : 4}</strong><small>Duplicates</small></div></article>
         </section>}
 
         {activeView !== "Team Space" ? <div className="mainGrid">
@@ -254,7 +300,7 @@ export default function Home() {
             {visibleGroups.length === 0 && <div className="emptyState"><strong>No matching tabs</strong><span>Try another search or view.</span></div>}
 
             {visibleGroups.map((group) => {
-              const expanded = openGroups.includes(group.name) || Boolean(query) || activeView === "Needs Action";
+              const expanded = openGroups.includes(group.name) || Boolean(query) || activeView === "Needs Action" || (extensionConnected && group.tabs.length <= 8);
               return (
                 <article className={`tabGroup ${group.name === "Marblism" ? "featured" : ""}`} key={group.name}>
                   <button className="groupHeader" onClick={() => toggleGroup(group.name)} aria-expanded={expanded}>

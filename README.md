@@ -41,9 +41,17 @@ npm run start
 
 Create a new Netlify site from this repository and use the existing `netlify.toml`. The build command is `npm run build`, the Node version is 22, and the Next.js Netlify plugin is already configured. No environment variables are needed for standalone mode.
 
+## Browser companion for real Chrome and Edge tabs
+
+The `extension/` directory contains a Chromium Manifest V3 companion that works in Chrome and Edge. It reads tab titles and URLs, sends them to an open YouTabbed dashboard tab, and refreshes when tabs are created, removed, or navigated.
+
+To use it locally, start the dashboard, open `chrome://extensions` or `edge://extensions`, enable **Developer mode**, choose **Load unpacked**, and select the repository's `extension/` directory. Then open the dashboard in the same browser and choose **Sync tabs now** from the extension popup. Full extension-specific instructions are in [`extension/README.md`](extension/README.md).
+
+The extension does not read page contents, cookies, passwords, form data, or signed-in sessions. It only sends tab metadata to the dashboard. If the dashboard is deployed on a different domain, add that domain to `extension/manifest.json` before loading the extension.
+
 ## Optional Supabase configuration
 
-Supabase is not currently required for the core app. If authenticated team collaboration is added later, create `.env.local` from `.env.example` and provide the public project URL and anon key. Never expose a Supabase service-role key in browser code.
+Supabase is not required for the core app or the browser companion. If authenticated team collaboration is added later, create `.env.local` from `.env.example` and provide the public project URL and anon key. Never expose a Supabase service-role key in browser code.
 
 ## Project structure
 
@@ -54,4 +62,4 @@ Supabase is not currently required for the core app. If authenticated team colla
 
 ## Current release
 
-This release is a functional standalone dashboard rather than a static visual prototype. The next product integration would be a browser extension that supplies real Chrome, Edge, Firefox, or Safari tab data; the dashboard is intentionally usable without that extension so a fresh download has a working experience immediately.
+This release is a functional standalone dashboard with an optional Chrome/Edge companion that supplies real tab data. The dashboard remains usable without the extension so a fresh download has a working experience immediately.
